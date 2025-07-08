@@ -299,6 +299,8 @@ static int schedule_process(struct schedproc * rmp, unsigned flags)
 	int err;
 	int new_prio, new_quantum, new_cpu, niced;
 
+    }
+
 	pick_cpu(rmp);
 
 	if (flags & SCHEDULE_CHANGE_PRIO)
