@@ -86,23 +86,9 @@ static void pick_cpu(struct schedproc * proc)
 
 int do_noquantum(message *m_ptr)
 {
-	register struct schedproc *rmp;
-	int rv, proc_nr_n;
-
-	if (sched_isokendpt(m_ptr->m_source, &proc_nr_n) != OK) {
-		printf("SCHED: WARNING: got an invalid endpoint in OOQ msg %u.\n",
-		m_ptr->m_source);
-		return EBADEPT;
-	}
-
-	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q) {
-		rmp->priority += 1; /* lower priority */
-	}
-
-	if ((rv = schedule_process_local(rmp)) != OK) {
-		return rv;
-	}
+	/* FIFO CHANGE: This should no longer be called by the kernel as we
+	 * disabled preemption by time-slice. We just return OK.
+	 */
 	return OK;
 }
 
@@ -253,42 +239,10 @@ int do_start_scheduling(message *m_ptr)
  *===========================================================================*/
 int do_nice(message *m_ptr)
 {
-	struct schedproc *rmp;
-	int rv;
-	int proc_nr_n;
-	unsigned new_q, old_q, old_max_q;
-
-	/* check who can send you requests */
-	if (!accept_message(m_ptr))
-		return EPERM;
-
-	if (sched_isokendpt(m_ptr->m_pm_sched_scheduling_set_nice.endpoint, &proc_nr_n) != OK) {
-		printf("SCHED: WARNING: got an invalid endpoint in OoQ msg "
-		"%d\n", m_ptr->m_pm_sched_scheduling_set_nice.endpoint);
-		return EBADEPT;
-	}
-
-	rmp = &schedproc[proc_nr_n];
-	new_q = m_ptr->m_pm_sched_scheduling_set_nice.maxprio;
-	if (new_q >= NR_SCHED_QUEUES) {
-		return EINVAL;
-	}
-
-	/* Store old values, in case we need to roll back the changes */
-	old_q     = rmp->priority;
-	old_max_q = rmp->max_priority;
-
-	/* Update the proc entry and reschedule the process */
-	rmp->max_priority = rmp->priority = new_q;
-
-	if ((rv = schedule_process_local(rmp)) != OK) {
-		/* Something went wrong when rescheduling the process, roll
-		 * back the changes to proc struct */
-		rmp->priority     = old_q;
-		rmp->max_priority = old_max_q;
-	}
-
-	return rv;
+	/* FIFO CHANGE: The concept of 'nice' (priority) does not exist in a
+	 * simple FIFO scheduler. We do nothing and report success.
+	 */
+	return OK;
 }
 
 /*===========================================================================*
@@ -352,18 +306,10 @@ void init_scheduling(void)
  */
 void balance_queues(void)
 {
-	struct schedproc *rmp;
-	int r, proc_nr;
-
-	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
-		if (rmp->flags & IN_USE) {
-			if (rmp->priority > rmp->max_priority) {
-				rmp->priority -= 1; /* increase priority */
-				schedule_process_local(rmp);
-			}
-		}
-	}
-
+	/* FIFO CHANGE: This function is obsolete in a FIFO scheduler as there
+	 * are no multiple queues to balance.
+	 */
+	int r;
 	if ((r = sys_setalarm(balance_timeout, 0)) != OK)
 		panic("sys_setalarm failed: %d", r);
 }
