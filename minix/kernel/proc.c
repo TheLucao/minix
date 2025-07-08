@@ -1596,20 +1596,20 @@ void enqueue(
   register struct proc *rp	/* this process is now runnable */
 )
 {
-/* Add 'rp' to one of the queues of runnable processes.  This function is 
- * responsible for inserting a process into one of the scheduling queues. 
- * The mechanism is implemented here.   The actual scheduling policy is
- * defined in sched() and pick_proc().
- *
- * This function can be used x-cpu as it always uses the queues of the cpu the
- * process is assigned to.
+/* FIFO CHANGE:
+ * This function has been modified for a FIFO scheduler.
+ * 1. All processes are forced into a single run queue (queue 0).
+ * The original p_priority field is ignored for queue selection.
+ * 2. Preemption of the current process based on the priority of the
+ * newly enqueued process has been removed. A process will only
+ * be chosen by pick_proc() when the current one blocks or terminates.
  */
-  int q = rp->p_priority;	 		/* scheduling queue to use */
+  int q = 0;	 		/* FIFO CHANGE: All processes go to queue 0. */
   struct proc **rdy_head, **rdy_tail;
   
   assert(proc_is_runnable(rp));
 
-  assert(q >= 0);
+  /* The original 'assert(q >= 0)' is no longer needed as q is hardcoded. */
 
   rdy_head = get_cpu_var(rp->p_cpu, run_q_head);
   rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
@@ -1784,32 +1784,24 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* Decide who to run now.  A new process is selected and returned.
- * When a billable process is selected, record it in 'bill_ptr', so that the 
- * clock task can tell who to bill for system time.
- *
- * This function always uses the run queues of the local cpu!
+/* Decide who to run now. For FIFO, we just pick from the head of the
+ * single queue we use.
  */
   register struct proc *rp;			/* process to run */
   struct proc **rdy_head;
-  int q;				/* iterate over queues */
 
-  /* Check each of the scheduling queues for ready processes. The number of
-   * queues is defined in proc.h, and priorities are set in the task table.
-   * If there are no processes ready to run, return NULL.
-   */
   rdy_head = get_cpulocal_var(run_q_head);
-  for (q=0; q < NR_SCHED_QUEUES; q++) {	
-	if(!(rp = rdy_head[q])) {
-		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
-		continue;
-	}
-	assert(proc_is_runnable(rp));
-	if (priv(rp)->s_flags & BILLABLE)	 	
-		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
-	return rp;
+  
+  /* For FIFO, we only use one queue (queue 0). */
+  rp = rdy_head[0];
+
+  if (rp) {
+  	assert(proc_is_runnable(rp));
+  	if (priv(rp)->s_flags & BILLABLE)	 	
+  		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
   }
-  return NULL;
+
+  return rp;
 }
 
 /*===========================================================================*
@@ -1892,21 +1884,11 @@ static void notify_scheduler(struct proc *p)
 
 void proc_no_time(struct proc * p)
 {
-	if (!proc_kernel_scheduler(p) && priv(p)->s_flags & PREEMPTIBLE) {
-		/* this dequeues the process */
-		notify_scheduler(p);
-	}
-	else {
-		/*
-		 * non-preemptible processes only need their quantum to
-		 * be renewed. In fact, they by pass scheduling
-		 */
-		p->p_cpu_time_left = ms_2_cpu_time(p->p_quantum_size_ms);
-#if DEBUG_RACE
-		RTS_SET(p, RTS_PREEMPTED);
-		RTS_UNSET(p, RTS_PREEMPTED);
-#endif
-	}
+    /* FIFO CHANGE: A process runs until it blocks, so we simply renew
+     * its quantum here to prevent it from being dequeued. This effectively
+     * disables time-slice preemption.
+     */
+    p->p_cpu_time_left = ms_2_cpu_time(p->p_quantum_size_ms);
 }
 
 void reset_proc_accounting(struct proc *p)
